@@ -26,6 +26,7 @@ dp: 移植自開發者 Candy0707 對 sunnypilot 的實際修改（已上車驗�
 """
 
 from cereal import car
+from openpilot.common.swaglog import cloudlog
 from openpilot.selfdrive.controls.lib.latcontrol import LatControl
 from openpilot.selfdrive.controls.lib.latcontrol_angle import LatControlAngle
 from openpilot.selfdrive.controls.lib.latcontrol_torque import LatControlTorque
@@ -40,6 +41,7 @@ class LatControlDynamic(LatControl):
 
     # 預設使用 CP (CarParams) 讀出來的設定值
     self.use_angle = (CP.steerControlType == car.CarParams.SteerControlType.angle)
+    cloudlog.warning("[LatControlDynamic] __init__ called, this controller IS active for this car")
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     # dp: 補上轉發，避免 controlsd 呼叫時 AttributeError（原始 commit 沒有這個方法，見檔頭說明）
@@ -53,12 +55,14 @@ class LatControlDynamic(LatControl):
     if CS.vEgo > 8.0 and not self.use_angle and is_safe_to_switch:
       self.use_angle = True
       self.angle_ctrl.reset()  # 確保角度控制器狀態乾淨  22ms
+      cloudlog.warning(f"[LatControlDynamic] switch -> ANGLE at vEgo={CS.vEgo:.2f} angle={CS.steeringAngleDeg:.2f} rate={CS.steeringRateDeg:.2f}")
 
     elif CS.vEgo < 4.0 and self.use_angle and is_safe_to_switch:
       self.use_angle = False
       self.torque_ctrl.reset()  # 確保扭矩控制器狀態乾淨 16ms
       if hasattr(self.torque_ctrl, 'pid'):
         self.torque_ctrl.pid.reset()  # 徹底清除積分
+      cloudlog.warning(f"[LatControlDynamic] switch -> TORQUE at vEgo={CS.vEgo:.2f} angle={CS.steeringAngleDeg:.2f} rate={CS.steeringRateDeg:.2f}")
 
     # 2. Angle 控制器永遠運算 (幾何計算，無風險)
     _, a_steer, a_log = self.angle_ctrl.update(active, CS, VM, params, steer_limited_by_safety, desired_curvature,
