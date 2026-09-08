@@ -41,7 +41,6 @@ class LatControlDynamic(LatControl):
 
     # 預設使用 CP (CarParams) 讀出來的設定值
     self.use_angle = (CP.steerControlType == car.CarParams.SteerControlType.angle)
-    cloudlog.warning("[LatControlDynamic] __init__ called, this controller IS active for this car")
 
   def update_live_torque_params(self, latAccelFactor, latAccelOffset, friction):
     # dp: 補上轉發，避免 controlsd 呼叫時 AttributeError（原始 commit 沒有這個方法，見檔頭說明）
@@ -54,12 +53,15 @@ class LatControlDynamic(LatControl):
     # 1. 判斷主控權與遲滯區間，並且鎖死過彎時的切換
     if CS.vEgo > 22.0 and not self.use_angle and is_safe_to_switch:
       self.use_angle = True
-      self.angle_ctrl.reset()  # 確保角度控制器狀態乾淨  22ms
+      self.angle_ctrl.reset()  # 確保角度控制器狀態乾淨
       cloudlog.warning(f"[LatControlDynamic] switch -> ANGLE at vEgo={CS.vEgo:.2f} angle={CS.steeringAngleDeg:.2f} rate={CS.steeringRateDeg:.2f}")
 
-    elif CS.vEgo < 16.0 and self.use_angle and is_safe_to_switch:
+    # dp: 切回 Torque 只看車速，不等待「安全直行」——Angle 只在高速穩定直行時可靠，
+    # 一旦車速掉到門檻以下，不論當下是否正在轉彎，都應立刻退回範圍較廣、較穩健的 Torque，
+    # 不能為了等一個安全直行的瞬間而多留在 Angle 模式。
+    elif CS.vEgo < 16.0 and self.use_angle:
       self.use_angle = False
-      self.torque_ctrl.reset()  # 確保扭矩控制器狀態乾淨 16ms
+      self.torque_ctrl.reset()  # 確保扭矩控制器狀態乾淨
       if hasattr(self.torque_ctrl, 'pid'):
         self.torque_ctrl.pid.reset()  # 徹底清除積分
       cloudlog.warning(f"[LatControlDynamic] switch -> TORQUE at vEgo={CS.vEgo:.2f} angle={CS.steeringAngleDeg:.2f} rate={CS.steeringRateDeg:.2f}")
