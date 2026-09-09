@@ -134,12 +134,15 @@ class TrackDP(Track):
 
     return current_ema
 
-  def process_track_logic(self, lead_idx: int, lead_msg: capnp._DynamicStructReader, v_ego: float, lead_prob: float):
+  def process_track_logic(self, lead_idx: int, lead_msg: capnp._DynamicStructReader, v_ego: float, lead_prob: float, is_turning: bool = False):
     offset_vision_dist = lead_msg.x[0] - RADAR_TO_CAMERA
     vision_y = -lead_msg.y[0]
     vision_v = lead_msg.v[0]
 
-    is_invalid = not self.measured or abs(self.yRel - vision_y) > (LANE_WIDTH_FALLBACK + LANE_HYSTERESIS_MARGIN)
+    # dp: 「必須真實量測」這道門檻改成只在轉彎時生效——
+    # 轉彎時保留保護，避免旁側車道目標因外推值誤判成切入本車道；
+    # 直行/巡航時放行，避免正常雷達漏拍拖慢插隊車輛的信心度累積、反應變慢半拍。
+    is_invalid = (is_turning and not self.measured) or abs(self.yRel - vision_y) > (LANE_WIDTH_FALLBACK + LANE_HYSTERESIS_MARGIN)
     
     fuzzy_score = 0.0
     if not is_invalid:
@@ -174,17 +177,20 @@ def get_lead_ext(
   lead_msg: capnp._DynamicStructReader,
   model_v_ego: float,
   lead_prob: float,
+  is_turning: bool = False,
   low_speed_override: bool = True,
 ) -> dict[str, Any]:
   """
   DP 適配版：移除了 CP 與 CP_SP，純粹依靠 DP 的系統參數運作。
+  新增 is_turning：由 radard.py 依方向盤角度/角速度判斷是否正在轉彎，
+  轉出去給 process_track_logic 決定是否要求「必須真實量測」。
   """
   lead_idx = 0 if low_speed_override else 1
   max_ema_confidence = 0.0
 
   if ready:
     for track in tracks.values():
-      track.process_track_logic(lead_idx, lead_msg, v_ego, lead_prob)
+      track.process_track_logic(lead_idx, lead_msg, v_ego, lead_prob, is_turning)
 
   valid_tracks = {k: v for k, v in tracks.items() if not v.is_out_of_lane and v.ema_confidence[lead_idx] > 0.0}
 
