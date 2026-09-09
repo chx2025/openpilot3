@@ -211,7 +211,7 @@ class RadarD:
     # dp: 判斷是否正在轉彎（角度或角速度超過門檻），供 radard_ext 的信心度累積邏輯
     # 使用——轉彎時保留「必須真實量測」的保護（避免誤判旁側車道目標切入本車道），
     # 直行/巡航時放行（避免正常雷達漏拍拖慢插隊反應）。
-    is_turning = abs(sm['carState'].steeringAngleDeg) >= 15.0 or abs(sm['carState'].steeringRateDeg) >= 10.0
+    is_turning = abs(sm['carState'].steeringAngleDeg) >= 10.0 or abs(sm['carState'].steeringRateDeg) >= 5.0
 
     ar_pts = {pt.trackId: [pt.dRel, pt.yRel, pt.vRel, pt.measured] for pt in rr.points}
 
