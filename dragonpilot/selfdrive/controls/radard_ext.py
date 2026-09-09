@@ -48,18 +48,10 @@ MODEL_TAU_BRAKE_A = -0.5            # 啟動驗證的最低急煞門檻 (m/s²)
 MODEL_TAU_SUSTAINED = 0.5           # 視覺確認急煞持續
 MODEL_TAU_SPURIOUS = 3.0            # 視覺預測即將加速
 
-# 全域快取：僅儲存上一幀鎖定目標的「識別碼(trackId)」，不快取物件本身。
-# 注意：絕對不可快取 Track 物件參考！一旦該 trackId 被 RadarD.update() 從
-# self.tracks 中移除（雷達硬體真的失去該點），舊物件就不會再被 .update()
-# 更新，dRel/vRel/aLeadK 會被凍結在消失前的最後一刻。若之後續命邏輯繼續
-# 回傳這顆「冰封」的殭屍物件長達 SELECT_HOLDOVER_FRAMES 幀，等於餵給縱向控制
-# 一組過期的相對速度/加速度，正是先前 Prius C 上 ACC 高速來回加減速（振盪）
-# 的根因。修正後每一幀都用 trackId 向當下的 tracks dict 重新查詢，確保拿到
-# 的永遠是「這一幀」雷達實際更新過的即時物件；只有當 trackId 真的從
-# tracks 消失（雷達硬體真正斷流）才允許續命倒數，續命期間也是每幀重新取值。
+# 全域快取：改回 Candy 版邏輯，直接快取 Track 物件本身
 _LEAD_STATE_CACHE = {
-    0: {'track_id': None, 'absent': 0},
-    1: {'track_id': None, 'absent': 0}
+    0: {'track': None, 'absent': 0},
+    1: {'track': None, 'absent': 0}
 }
 
 
@@ -203,25 +195,18 @@ def get_lead_ext(
   if len(valid_tracks) > 0 and ready and lead_prob > current_prob_thres:
     selected_track = match_vision_to_track(v_ego, lead_msg, valid_tracks)
 
-  # 狀態機記憶：雷達硬體斷流修補
-  # 修正：只快取 trackId，續命時一律用 trackId 向本幀的 tracks dict 重新取值，
-  # 絕不回傳凍結在舊幀的殭屍物件。若 trackId 已不在 tracks 裡（雷達真的斷流），
-  # 代表沒有任何即時資料可續命，立即清除快取，不做無意義的凍結延續。
+  # 狀態機記憶：還原 Candy 版的殭屍物件強制續命邏輯 (直接快取物件)
   cache = _LEAD_STATE_CACHE[lead_idx]
   if selected_track is not None:
-    cache['track_id'] = selected_track.identifier
+    cache['track'] = selected_track
     cache['absent'] = 0
-  elif cache['track_id'] is not None and cache['track_id'] in tracks:
+  elif cache['track'] is not None:
     cache['absent'] += 1
     if cache['absent'] <= SELECT_HOLDOVER_FRAMES:
-      selected_track = tracks[cache['track_id']]  # 重新查詢，取得本幀已更新的即時物件
+      selected_track = cache['track']  # 強制回傳上一刻的凍結物件，維持鎖定
     else:
-      cache['track_id'] = None
+      cache['track'] = None
       cache['absent'] = 0
-  else:
-    # trackId 已從雷達硬體消失（不只是這幀視覺比對失敗），沒有續命的意義
-    cache['track_id'] = None
-    cache['absent'] = 0
 
   lead_dict = {'status': False}
   if selected_track is not None:
